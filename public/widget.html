@@ -222,6 +222,11 @@
     }
     
     function triggerLightningEffect() {
+      // Notify parent page for full-page effects
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: 'lightning_payment' }, '*');
+      }
+      
       // Flash overlay
       flashOverlay.classList.remove('animate');
       void flashOverlay.offsetWidth;
