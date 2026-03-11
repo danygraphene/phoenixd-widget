@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lightning Balance Widget</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: transparent;
+    }
+    .mini-widget {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      border-radius: 50px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+    .lightning-icon {
+      font-size: 18px;
+    }
+    .balance {
+      color: #fbbf24;
+      font-size: 16px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+    .balance.flash {
+      color: #4ade80;
+      transform: scale(1.1);
+    }
+    .unit {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 12px;
+    }
+    .status {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #4ade80;
+      animation: pulse 2s infinite;
+    }
+    .status.disconnected {
+      background: #ef4444;
+      animation: none;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, #065f46 0%, #047857 100%);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: slideInRight 0.3s ease, fadeOut 0.3s ease 2.7s forwards;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+    }
+    @keyframes slideInRight {
+      from {
+        opacity: 0;
+        transform: translateX(100px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+    @keyframes fadeOut {
+      to {
+        opacity: 0;
+        transform: translateY(-20px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="mini-widget">
+    <span class="lightning-icon">⚡</span>
+    <span class="balance" id="balance">--</span>
+    <span class="unit">sats</span>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div id="notifications"></div>
+
+  <script>
+    const WIDGET_HOST = window.PHOENIXD_WIDGET_HOST || window.location.origin;
+    
+    const balanceEl = document.getElementById('balance');
+    const statusEl = document.getElementById('status');
+    const notificationsEl = document.getElementById('notifications');
+    
+    let ws;
+    
+    function formatSats(sats) {
+      if (sats >= 1000000) {
+        return (sats / 1000000).toFixed(2) + 'M';
+      } else if (sats >= 1000) {
+        return (sats / 1000).toFixed(1) + 'k';
+      }
+      return new Intl.NumberFormat().format(sats);
+    }
+    
+    function updateBalance(sats, flash = false) {
+      balanceEl.textContent = formatSats(sats);
+      if (flash) {
+        balanceEl.classList.add('flash');
+        setTimeout(() => balanceEl.classList.remove('flash'), 500);
+      }
+    }
+    
+    function showNotification(amount) {
+      const el = document.createElement('div');
+      el.className = 'notification';
+      el.innerHTML = `⚡ <strong>+${formatSats(amount)} sats</strong> received!`;
+      notificationsEl.appendChild(el);
+      setTimeout(() => el.remove(), 3000);
+    }
+    
+    function connect() {
+      const wsUrl = WIDGET_HOST.replace(/^http/, 'ws');
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = () => {
+        statusEl.classList.remove('disconnected');
+      };
+      
+      ws.onclose = () => {
+        statusEl.classList.add('disconnected');
+        setTimeout(connect, 3000);
+      };
+      
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'balance_update') {
+          updateBalance(data.balanceSat, true);
+        } else if (data.type === 'payment_received') {
+          showNotification(data.receivedSat);
+        }
+      };
+    }
+    
+    connect();
+  </script>
+</body>
+</html>

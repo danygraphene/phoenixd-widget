@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lightning Payments Widget</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    .widget {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      padding: 30px;
+      width: 100%;
+      max-width: 400px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .lightning-icon {
+      font-size: 32px;
+    }
+    .title {
+      color: #fff;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .status {
+      margin-left: auto;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #4ade80;
+      animation: pulse 2s infinite;
+    }
+    .status.disconnected {
+      background: #ef4444;
+      animation: none;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .balance-section {
+      text-align: center;
+      padding: 24px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .balance-label {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .balance {
+      color: #fbbf24;
+      font-size: 42px;
+      font-weight: 700;
+      transition: all 0.3s ease;
+    }
+    .balance.flash {
+      color: #4ade80;
+      transform: scale(1.05);
+    }
+    .balance-unit {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 18px;
+      margin-left: 8px;
+    }
+    .payments-section {
+      margin-top: 24px;
+    }
+    .payments-header {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .payment {
+      display: flex;
+      align-items: center;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      margin-bottom: 8px;
+      animation: slideIn 0.3s ease;
+    }
+    .payment.new {
+      background: rgba(74, 222, 128, 0.2);
+      border: 1px solid rgba(74, 222, 128, 0.3);
+    }
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .payment-icon {
+      font-size: 20px;
+      margin-right: 12px;
+    }
+    .payment-details {
+      flex: 1;
+    }
+    .payment-amount {
+      color: #4ade80;
+      font-weight: 600;
+      font-size: 16px;
+    }
+    .payment-desc {
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 12px;
+      margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 200px;
+    }
+    .payment-time {
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 12px;
+    }
+    .no-payments {
+      color: rgba(255, 255, 255, 0.4);
+      text-align: center;
+      padding: 20px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="widget">
+    <div class="header">
+      <span class="lightning-icon">⚡</span>
+      <span class="title">Lightning Node</span>
+      <div class="status" id="status"></div>
+    </div>
+    
+    <div class="balance-section">
+      <div class="balance-label">Balance</div>
+      <div>
+        <span class="balance" id="balance">--</span>
+        <span class="balance-unit">sats</span>
+      </div>
+    </div>
+    
+    <div class="payments-section">
+      <div class="payments-header">Recent Payments</div>
+      <div id="payments">
+        <div class="no-payments">No payments yet</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const balanceEl = document.getElementById('balance');
+    const statusEl = document.getElementById('status');
+    const paymentsEl = document.getElementById('payments');
+    
+    let ws;
+    let payments = [];
+    
+    function formatSats(sats) {
+      return new Intl.NumberFormat().format(sats);
+    }
+    
+    function formatTime(timestamp) {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    
+    function updateBalance(sats, flash = false) {
+      balanceEl.textContent = formatSats(sats);
+      if (flash) {
+        balanceEl.classList.add('flash');
+        setTimeout(() => balanceEl.classList.remove('flash'), 500);
+      }
+    }
+    
+    function addPayment(payment, isNew = false) {
+      // Remove from existing if present
+      payments = payments.filter(p => p.paymentHash !== payment.paymentHash);
+      // Add to front
+      payments.unshift({ ...payment, isNew });
+      // Keep only last 5
+      payments = payments.slice(0, 5);
+      renderPayments();
+      
+      // Remove "new" styling after animation
+      if (isNew) {
+        setTimeout(() => {
+          payments = payments.map(p => 
+            p.paymentHash === payment.paymentHash ? { ...p, isNew: false } : p
+          );
+          renderPayments();
+        }, 3000);
+      }
+    }
+    
+    function renderPayments() {
+      if (payments.length === 0) {
+        paymentsEl.innerHTML = '<div class="no-payments">No payments yet</div>';
+        return;
+      }
+      
+      paymentsEl.innerHTML = payments.map(p => `
+        <div class="payment ${p.isNew ? 'new' : ''}">
+          <span class="payment-icon">⚡</span>
+          <div class="payment-details">
+            <div class="payment-amount">+${formatSats(p.receivedSat)} sats</div>
+            <div class="payment-desc">${p.description || 'Lightning payment'}</div>
+          </div>
+          <div class="payment-time">${formatTime(p.completedAt || p.createdAt)}</div>
+        </div>
+      `).join('');
+    }
+    
+    function connect() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}`);
+      
+      ws.onopen = () => {
+        console.log('Connected');
+        statusEl.classList.remove('disconnected');
+      };
+      
+      ws.onclose = () => {
+        console.log('Disconnected, reconnecting...');
+        statusEl.classList.add('disconnected');
+        setTimeout(connect, 3000);
+      };
+      
+      ws.onerror = (err) => {
+        console.error('WebSocket error:', err);
+      };
+      
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log('Received:', data);
+        
+        if (data.type === 'balance_update') {
+          updateBalance(data.balanceSat, true);
+        } else if (data.type === 'payment_received') {
+          addPayment(data, true);
+          // Balance update will follow
+        }
+      };
+    }
+    
+    // Load initial payments
+    fetch('/api/payments')
+      .then(res => res.json())
+      .then(data => {
+        data.forEach(p => addPayment(p, false));
+      })
+      .catch(console.error);
+    
+    // Connect websocket
+    connect();
+  </script>
+</body>
+</html>
